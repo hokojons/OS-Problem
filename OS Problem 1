@@ -1,0 +1,128 @@
+pthread_mutex_t output_lock;#include <stdio.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <time.h>
+
+#define TOTAL_PHILOSOPHERS 5
+#define THINK_TIME_MIN 1
+#define THINK_TIME_MAX 3
+#define EAT_TIME_MIN 1
+#define EAT_TIME_MAX 2
+
+
+sem_t dining_room;  // Controls max philosophers in dining room
+pthread_mutex_t forks[TOTAL_PHILOSOPHERS];
+
+
+
+const char* states[] = {"THINKING", "HUNGRY", "EATING", "FINISHED"};
+
+typedef struct {
+    int philosopher_id;
+    int meals_eaten;
+    int max_meals;
+} PhilosopherData;
+
+
+int get_random_time(int min, int max) {
+    return min + (rand() % (max - min + 1));
+}
+
+
+void safe_print(int id, const char* action, const char* details) {
+    pthread_mutex_lock(&output_lock);
+    printf("[Philosopher %d] %s %s\n", id, action, details);
+    fflush(stdout);
+    pthread_mutex_unlock(&output_lock);
+}
+
+
+void* philosopher_lifecycle(void* argument) {
+    PhilosopherData* data = (PhilosopherData*)argument;
+    int id = data->philosopher_id;
+    int left_fork = id;
+    int right_fork = (id + 1) % TOTAL_PHILOSOPHERS;
+    
+    srand(time(NULL) + id);
+    
+    while (data->meals_eaten < data->max_meals) {
+                
+        safe_print(id, "is", "pondering life's mysteries...");
+        sleep(get_random_time(THINK_TIME_MIN, THINK_TIME_MAX));
+        
+        safe_print(id, "feels", "hungry and wants to dine");
+        sem_wait(&dining_room);
+        
+        if (left_fork < right_fork) {
+            pthread_mutex_lock(&forks[left_fork]);
+            safe_print(id, "picked up", "left fork");
+            pthread_mutex_lock(&forks[right_fork]);
+            safe_print(id, "picked up", "right fork");
+        } else {
+            pthread_mutex_lock(&forks[right_fork]);
+            safe_print(id, "picked up", "right fork");
+            pthread_mutex_lock(&forks[left_fork]);
+            safe_print(id, "picked up", "left fork");
+        }
+        
+        safe_print(id, "is", "enjoying a delicious meal");
+        sleep(get_random_time(EAT_TIME_MIN, EAT_TIME_MAX));
+        data->meals_eaten++;
+        
+        pthread_mutex_unlock(&forks[left_fork]);
+        pthread_mutex_unlock(&forks[right_fork]);
+        safe_print(id, "finished", "eating and put down forks");
+        
+        sem_post(&dining_room);
+        
+        safe_print(id, "completed meal", 
+                  data->meals_eaten < data->max_meals ? "(will return later)" : "(fully satisfied)");
+    }
+    
+    safe_print(id, "has", "completed all meals and is departing");
+    return NULL;
+}
+
+int main() {
+    pthread_t philosopher_threads[TOTAL_PHILOSOPHERS];
+    PhilosopherData philosopher_data[TOTAL_PHILOSOPHERS];
+    int max_meals_per_philosopher = 3;
+    
+    sem_init(&dining_room, 0, TOTAL_PHILOSOPHERS - 1);
+    pthread_mutex_init(&output_lock, NULL);
+    
+    for (int i = 0; i < TOTAL_PHILOSOPHERS; i++) {
+        pthread_mutex_init(&forks[i], NULL);
+        philosopher_data[i].philosopher_id = i;
+        philosopher_data[i].meals_eaten = 0;
+        philosopher_data[i].max_meals = max_meals_per_philosopher;
+    }
+    
+    printf("=== Dining Philosophers Simulation Started ===\n");
+    printf("Configuration: %d philosophers, %d meals each\n\n", 
+           TOTAL_PHILOSOPHERS, max_meals_per_philosopher);
+    
+    for (int i = 0; i < TOTAL_PHILOSOPHERS; i++) {
+        if (pthread_create(&philosopher_threads[i], NULL, 
+                          philosopher_lifecycle, &philosopher_data[i]) != 0) {
+            printf("Error creating thread for philosopher %d\n", i);
+            exit(1);
+        }
+    }
+    
+    for (int i = 0; i < TOTAL_PHILOSOPHERS; i++) {
+        pthread_join(philosopher_threads[i], NULL);
+    }
+    
+    printf("\n=== All philosophers have finished dining ===\n");
+    
+    sem_destroy(&dining_room);
+    pthread_mutex_destroy(&output_lock);
+    for (int i = 0; i < TOTAL_PHILOSOPHERS; i++) {
+        pthread_mutex_destroy(&forks[i]);
+    }
+    
+    return 0;
+}
