@@ -1,0 +1,223 @@
+#include <stdio.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <unistd.h>
+#include <time.h>
+#include <stdlib.h>
+#include <stdbool.h>
+
+#define NUM_PHILOSOPHERS 5
+#define MAX_WAIT_TIME 10
+#define STARVATION_THRESHOLD 5
+
+typedef struct {
+    int id;
+    int hunger_level;
+    time_t last_meal_time;
+    int total_meals;
+    bool is_eating;
+} Philosopher;
+
+sem_t dining_room;
+pthread_mutex_t chopsticks[NUM_PHILOSOPHERS];
+pthread_mutex_t philosopher_mutex;
+pthread_cond_t hungry_cond;
+
+Philosopher philosophers_data[NUM_PHILOSOPHERS];
+int active_eaters = 0;
+
+int get_hungriest_philosopher() {
+    int hungriest = -1;
+    int max_hunger = -1;
+    time_t current_time = time(NULL);
+    
+    for (int i = 0; i < NUM_PHILOSOPHERS; i++) {
+        time_t wait_time = current_time - philosophers_data[i].last_meal_time;
+        philosophers_data[i].hunger_level = (int)wait_time;
+        
+        if (!philosophers_data[i].is_eating && 
+            philosophers_data[i].hunger_level > max_hunger &&
+            philosophers_data[i].total_meals < 4) {
+            max_hunger = philosophers_data[i].hunger_level;
+            hungriest = i;
+        }
+    }
+    
+    return hungriest;
+}
+
+bool check_starvation() {
+    time_t current_time = time(NULL);
+    for (int i = 0; i < NUM_PHILOSOPHERS; i++) {
+        time_t wait_time = current_time - philosophers_data[i].last_meal_time;
+        if (wait_time > STARVATION_THRESHOLD && !philosophers_data[i].is_eating) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void *philosopher(void *arg) {
+    int id = *(int *)arg;
+    int left = id;
+    int right = (id + 1) % NUM_PHILOSOPHERS;
+    
+    pthread_mutex_lock(&philosopher_mutex);
+    philosophers_data[id].id = id;
+    philosophers_data[id].hunger_level = 0;
+    philosophers_data[id].last_meal_time = time(NULL);
+    philosophers_data[id].total_meals = 0;
+    philosophers_data[id].is_eating = false;
+    pthread_mutex_unlock(&philosopher_mutex);
+    
+    while (philosophers_data[id].total_meals < 4) {
+        printf("Philosopher %d is thinking (meals eaten: %d/4)...\n", 
+               id, philosophers_data[id].total_meals);
+        sleep(1 + rand() % 3);
+        
+        pthread_mutex_lock(&philosopher_mutex);
+        
+        while (true) {
+            int hungriest = get_hungriest_philosopher();
+            bool starvation_detected = check_starvation();
+            
+            if ((hungriest == id || starvation_detected) && active_eaters < 2) {
+                break;
+            }
+            
+            printf("Philosopher %d waiting (hunger level: %d)...\n", 
+                   id, philosophers_data[id].hunger_level);
+            pthread_cond_wait(&hungry_cond, &philosopher_mutex);
+        }
+        
+        active_eaters++;
+        philosophers_data[id].is_eating = true;
+        pthread_mutex_unlock(&philosopher_mutex);
+        
+        sem_wait(&dining_room);
+        
+        int first = (left < right) ? left : right;
+        int second = (left < right) ? right : left;
+        
+        printf("Philosopher %d is acquiring chopsticks (%d, %d)...\n", id, left, right);
+        pthread_mutex_lock(&chopsticks[first]);
+        
+        usleep(50000);
+        
+        pthread_mutex_lock(&chopsticks[second]);
+        
+        printf("Philosopher %d is eating (priority meal #%d)...\n", 
+               id, philosophers_data[id].total_meals + 1);
+        sleep(1 + rand() % 2);
+        
+        pthread_mutex_lock(&philosopher_mutex);
+        philosophers_data[id].total_meals++;
+        philosophers_data[id].last_meal_time = time(NULL);
+        philosophers_data[id].hunger_level = 0;
+        philosophers_data[id].is_eating = false;
+        active_eaters--;
+        pthread_mutex_unlock(&philosopher_mutex);
+        
+        printf("Philosopher %d finished eating (total meals: %d/4)\n", 
+               id, philosophers_data[id].total_meals);
+        
+        pthread_mutex_unlock(&chopsticks[second]);
+        pthread_mutex_unlock(&chopsticks[first]);
+        
+        sem_post(&dining_room);
+        
+        pthread_cond_broadcast(&hungry_cond);
+        
+        usleep(100000);
+    }
+    
+    printf("Philosopher %d has completed all meals and is satisfied!\n", id);
+    return NULL;
+}
+
+void *monitor(void *arg) {
+    while (true) {
+        sleep(3);
+        
+        pthread_mutex_lock(&philosopher_mutex);
+        printf("\n=== STATUS REPORT ===\n");
+        printf("Active eaters: %d/2\n", active_eaters);
+        
+        for (int i = 0; i < NUM_PHILOSOPHERS; i++) {
+            printf("Philosopher %d: %d meals, hunger: %d, %s\n", 
+                   i, 
+                   philosophers_data[i].total_meals,
+                   philosophers_data[i].hunger_level,
+                   philosophers_data[i].is_eating ? "EATING" : "waiting");
+        }
+        
+        bool all_finished = true;
+        for (int i = 0; i < NUM_PHILOSOPHERS; i++) {
+            if (philosophers_data[i].total_meals < 4) {
+                all_finished = false;
+                break;
+            }
+        }
+        
+        pthread_mutex_unlock(&philosopher_mutex);
+        
+        if (all_finished) {
+            printf("All philosophers have finished!\n");
+            break;
+        }
+        
+        printf("========================\n\n");
+    }
+    return NULL;
+}
+
+int main() {
+    pthread_t philosopher_threads[NUM_PHILOSOPHERS];
+    pthread_t monitor_thread;
+    int ids[NUM_PHILOSOPHERS];
+    
+    srand(time(NULL));
+    
+    sem_init(&dining_room, 0, 2);
+    pthread_mutex_init(&philosopher_mutex, NULL);
+    pthread_cond_init(&hungry_cond, NULL);
+    
+    for (int i = 0; i < NUM_PHILOSOPHERS; i++) {
+        pthread_mutex_init(&chopsticks[i], NULL);
+    }
+    
+    printf("Starting Advanced Dining Philosophers - Priority & Starvation Prevention\n");
+    printf("Features: Priority-based eating, Starvation detection, Max 2 concurrent eaters\n");
+    printf("Goal: Each philosopher eats 4 meals\n\n");
+    
+    for (int i = 0; i < NUM_PHILOSOPHERS; i++) {
+        ids[i] = i;
+        pthread_create(&philosopher_threads[i], NULL, philosopher, &ids[i]);
+    }
+    
+    pthread_create(&monitor_thread, NULL, monitor, NULL);
+    
+    for (int i = 0; i < NUM_PHILOSOPHERS; i++) {
+        pthread_join(philosopher_threads[i], NULL);
+    }
+    
+    pthread_cancel(monitor_thread);
+    
+    printf("\n=== FINAL RESULTS ===\n");
+    int total_meals = 0;
+    for (int i = 0; i < NUM_PHILOSOPHERS; i++) {
+        total_meals += philosophers_data[i].total_meals;
+        printf("Philosopher %d: %d meals completed\n", i, philosophers_data[i].total_meals);
+    }
+    printf("Total meals served: %d\n", total_meals);
+    printf("Simulation completed successfully!\n");
+    
+    sem_destroy(&dining_room);
+    pthread_mutex_destroy(&philosopher_mutex);
+    pthread_cond_destroy(&hungry_cond);
+    for (int i = 0; i < NUM_PHILOSOPHERS; i++) {
+        pthread_mutex_destroy(&chopsticks[i]);
+    }
+    
+    return 0;
+}
