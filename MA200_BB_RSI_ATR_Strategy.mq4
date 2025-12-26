@@ -53,15 +53,17 @@ void OnTick() {
       if (OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) {
          if (OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber) {
             if (OrderType() == OP_BUY) {
-               if (Bid - OrderStopLoss() > TrailingStop * Point) {
-                  bool result = OrderModify(OrderTicket(), OrderOpenPrice(), Bid - TrailingStop * Point, OrderTakeProfit(), 0, Green);
+               double newSL = Bid - TrailingStop * Point;
+               if (Bid - OrderStopLoss() > TrailingStop * Point && newSL > OrderStopLoss()) {
+                  bool result = OrderModify(OrderTicket(), OrderOpenPrice(), newSL, OrderTakeProfit(), 0, Green);
                   if (!result) {
                      Print("Error modifying buy order: ", GetLastError());
                   }
                }
             } else if (OrderType() == OP_SELL) {
-               if (OrderStopLoss() - Ask > TrailingStop * Point) {
-                  bool result = OrderModify(OrderTicket(), OrderOpenPrice(), Ask + TrailingStop * Point, OrderTakeProfit(), 0, Red);
+               double newSL = Ask + TrailingStop * Point;
+               if (OrderStopLoss() - Ask > TrailingStop * Point && newSL < OrderStopLoss()) {
+                  bool result = OrderModify(OrderTicket(), OrderOpenPrice(), newSL, OrderTakeProfit(), 0, Red);
                   if (!result) {
                      Print("Error modifying sell order: ", GetLastError());
                   }
