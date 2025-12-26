@@ -28,6 +28,14 @@ This Expert Advisor (EA) implements a comprehensive trading strategy that combin
    - Used for dynamic Stop Loss and Take Profit calculations
    - Adapts position sizing to market conditions
 
+## Key Features
+
+- **Order Management**: Prevents multiple orders by checking for open positions before placing new trades
+- **Magic Number**: Uses unique identifier (12345) to manage only its own orders
+- **Error Handling**: Includes error checking and logging for OrderSend and OrderModify operations
+- **Symbol Filtering**: Trailing stop only affects orders for the current chart symbol
+- **Dynamic Risk Management**: ATR-based stop loss and take profit adjust to market volatility
+
 ## Trading Rules
 
 ### Buy Conditions
@@ -75,6 +83,7 @@ The EA includes an automatic trailing stop mechanism that protects profits:
 | ATR_Period | 14 | ATR period |
 | ATR_Multiplier | 1.5 | Multiplier for ATR-based SL/TP |
 | TrailingStop | 10 | Trailing stop distance in pips |
+| MagicNumber | 12345 | Unique identifier for EA's orders |
 
 ## Installation
 

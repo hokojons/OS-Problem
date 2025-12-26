@@ -8,6 +8,18 @@ extern int RSI_Period = 14;
 extern int ATR_Period = 14;
 extern double ATR_Multiplier = 1.5;
 extern double TrailingStop = 10; // Trailing stop dalam pips
+extern int MagicNumber = 12345;
+
+bool HasOpenPosition() {
+   for (int i = 0; i < OrdersTotal(); i++) {
+      if (OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) {
+         if (OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber) {
+            return true;
+         }
+      }
+   }
+   return false;
+}
 
 void OnTick() {
    double ma200 = iMA(NULL, 0, MA_Period, 0, MODE_SMA, PRICE_CLOSE, 0);
@@ -17,29 +29,43 @@ void OnTick() {
    double atr = iATR(NULL, 0, ATR_Period, 0);
 
    // Buy condition
-   if (Close[0] > ma200 && Close[0] <= lowerBB && rsi < 30) {
+   if (Close[0] > ma200 && Close[0] <= lowerBB && rsi < 30 && !HasOpenPosition()) {
       double sl = Close[0] - (atr * ATR_Multiplier);
       double tp = Close[0] + (atr * ATR_Multiplier * 2);
-      OrderSend(Symbol(), OP_BUY, 0.1, Ask, 3, sl, tp, "Buy Order", 0, 0, Green);
+      int ticket = OrderSend(Symbol(), OP_BUY, 0.1, Ask, 3, sl, tp, "Buy Order", MagicNumber, 0, Green);
+      if (ticket < 0) {
+         Print("Error opening buy order: ", GetLastError());
+      }
    }
 
    // Sell condition
-   if (Close[0] < ma200 && Close[0] >= upperBB && rsi > 70) {
+   if (Close[0] < ma200 && Close[0] >= upperBB && rsi > 70 && !HasOpenPosition()) {
       double sl = Close[0] + (atr * ATR_Multiplier);
       double tp = Close[0] - (atr * ATR_Multiplier * 2);
-      OrderSend(Symbol(), OP_SELL, 0.1, Bid, 3, sl, tp, "Sell Order", 0, 0, Red);
+      int ticket = OrderSend(Symbol(), OP_SELL, 0.1, Bid, 3, sl, tp, "Sell Order", MagicNumber, 0, Red);
+      if (ticket < 0) {
+         Print("Error opening sell order: ", GetLastError());
+      }
    }
 
    // Trailing Stop
    for (int i = 0; i < OrdersTotal(); i++) {
       if (OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) {
-         if (OrderType() == OP_BUY) {
-            if (Bid - OrderStopLoss() > TrailingStop * Point) {
-               OrderModify(OrderTicket(), OrderOpenPrice(), Bid - TrailingStop * Point, OrderTakeProfit(), 0, Green);
-            }
-         } else if (OrderType() == OP_SELL) {
-            if (OrderStopLoss() - Ask > TrailingStop * Point) {
-               OrderModify(OrderTicket(), OrderOpenPrice(), Ask + TrailingStop * Point, OrderTakeProfit(), 0, Red);
+         if (OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber) {
+            if (OrderType() == OP_BUY) {
+               if (Bid - OrderStopLoss() > TrailingStop * Point) {
+                  bool result = OrderModify(OrderTicket(), OrderOpenPrice(), Bid - TrailingStop * Point, OrderTakeProfit(), 0, Green);
+                  if (!result) {
+                     Print("Error modifying buy order: ", GetLastError());
+                  }
+               }
+            } else if (OrderType() == OP_SELL) {
+               if (OrderStopLoss() - Ask > TrailingStop * Point) {
+                  bool result = OrderModify(OrderTicket(), OrderOpenPrice(), Ask + TrailingStop * Point, OrderTakeProfit(), 0, Red);
+                  if (!result) {
+                     Print("Error modifying sell order: ", GetLastError());
+                  }
+               }
             }
          }
       }
